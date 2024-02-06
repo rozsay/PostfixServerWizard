@@ -351,7 +351,7 @@ postconf -e "virtual_transport = lmtp:unix:private/dovecot-lmtp"
 
 echo "Configuring Postfix's master.cf..."
 [[ ! -f /etc/postfix//master.cf.origin ]] && cp /etc/postfix/master.cf /etc/postfix/master.cf.origin
-cat <<-EOF >> /etc/postfix/master.cf
+cat <<-EOF > /etc/postfix/master.cf
 # ==========================================================================
 # service type  private unpriv  chroot  wakeup  maxproc command + args
 #               (yes)   (yes)   (no)    (never) (100)
