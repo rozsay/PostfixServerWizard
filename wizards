@@ -438,6 +438,7 @@ EOF
 
 install_postfix_dovecot() {
 	install_postfix
+	configure_postfix
 }
 
 check_root
@@ -467,7 +468,7 @@ case $CHOICE in
 	;;
         "3)")
                 result="I"
-                install_postfix
+                install_postfix_dovecot
         ;;
 
         "9)") exit
