@@ -56,12 +56,12 @@ apt-get update | spinner | whiptail --title "APT update" --gauge "Please wait wh
 }
 
 ubuntu_initialize() {
-	echo "Updating and Installing Dependicies"
-	apt-get -qq update > /dev/null 2>&1
-	apt-get -qq -y upgrade > /dev/null 2>&1
-	apt-get install -qq -y nmap > /dev/null 2>&1
-	apt-get install -qq -y git > /dev/null 2>&1
-	rm -r /var/log/exim4/ > /dev/null 2>&1
+#	echo "Updating and Installing Dependicies"
+#	apt-get -qq update > /dev/null 2>&1
+#	apt-get -qq -y upgrade > /dev/null 2>&1
+#	apt-get install -qq -y nmap > /dev/null 2>&1
+#	apt-get install -qq -y git > /dev/null 2>&1
+#	rm -r /var/log/exim4/ > /dev/null 2>&1
 
 	update-rc.d nfs-common disable > /dev/null 2>&1
 	update-rc.d rpcbind disable > /dev/null 2>&1
@@ -82,7 +82,7 @@ ubuntu_initialize() {
 
 #	echo "Changing Hostname"
 #	read -p "Enter your hostname: " -r primary_domain
-NAME=$(whiptail --inputbox "What is your name?" 8 39 --title "Getting to know you" 3>&1 1>&2 2>&3)
+NAME=$(whiptail --inputbox "What is your hostname?" 8 39 --title "Getting to know you" 3>&1 1>&2 2>&3)
 exitstatus=$?
 if [ $exitstatus = 0 ]; then
 echo "Greetings," $NAME
@@ -122,11 +122,9 @@ case $CHOICE in
 		check_root
 	;;
 	"2)") 
-		OP=$(uptime | awk '{print $3;}') 
 		ubuntu_initialize 
 		OP1=$(uptime | awk '{print $3;}') 
-		OP2=OP1-OP
-		result="This system has been up $OP2 minutes"
+		result="This system has been updated"
 	;;
         "9)") exit
         ;;
