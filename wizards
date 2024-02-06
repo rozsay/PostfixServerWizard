@@ -1,15 +1,18 @@
 #!/bin/sh
 
-echo "  Installing programs..."
+primary_domain=domain.hu
+echo "Installing programs..."
 
-REQUIRED_PKG="whiptail"
+install_package() {
+REQUIRED_PKG=$1
+#REQUIRED_PKG="whiptail"
 PKG_OK=$(dpkg-query -W --showformat='${Status}\n' $REQUIRED_PKG|grep "install ok installed")
 echo Checking for $REQUIRED_PKG: $PKG_OK
 if [ "" = "$PKG_OK" ]; then
   echo "No $REQUIRED_PKG. Setting up $REQUIRED_PKG."
   sudo apt-get --yes install $REQUIRED_PKG
 fi
-
+}
 #message="Server Setup Script - Pick an option:."
 #whiptail --msgbox --title "Wizard" "$message" 25 80
 
@@ -34,6 +37,7 @@ calc_wt_size() {
   fi
   WT_MENU_HEIGHT=$((WT_HEIGHT-7))
 }
+
 spinner() {
   i=1
   while read -r line; do
@@ -43,17 +47,58 @@ spinner() {
   done
 }
 
-check_root
 
 systemclear() {
-apt-get -y autoremove | spinner | whiptail --title "Removing Completly MySQL installattion and Databases" --gauge "Removing ...." 6 60 0
-sudo apt-get -y autoclean | spinner | whiptail --title "Removing Completly MySQL installattion and Databases" --gauge "Removing ...." 6 60 0
+	apt-get -y autoremove | spinner | whiptail --title "Removing Completly MySQL installattion and Databases" --gauge "Removing ...." 6 60 0
+	sudo apt-get -y autoclean | spinner | whiptail --title "Removing Completly MySQL installattion and Databases" --gauge "Removing ...." 6 60 0
 }
 
 systemupdate() {
-#apt-get install -y mysql-server | spinner | whiptail --title "Installing MySQL server for Debian" --gauge "Please wait ..." 6 60 0
-apt-get update | spinner | whiptail --title "APT update" --gauge "Please wait while apt update..." 6 60 0
+	#apt-get install -y mysql-server | spinner | whiptail --title "Installing MySQL server for Debian" --gauge "Please wait ..." 6 60 0
+	apt-get update | spinner | whiptail --title "APT update" --gauge "Please wait while apt update..." 6 60 0
 }
+
+# Test an IP address for validity:
+# Usage:
+#      is_ip IP_ADDRESS
+#      if [[ $? -eq 0 ]]; then echo good; else echo bad; fi
+#   OR
+#      if is_ip IP_ADDRESS; then echo good; else echo bad; fi
+#
+
+is_ip() {
+    local  ip=$1
+    local  stat=1
+
+    if [[ $ip =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+        OIFS=$IFS
+        IFS='.'
+#        ip=($ip)
+        IFS=$OIFS
+        [[ ${ip[0]} -le 255 && ${ip[1]} -le 255 \
+            && ${ip[2]} -le 255 && ${ip[3]} -le 255 ]]
+        stat=$?
+    fi
+    return $stat
+}
+
+Is_numbers() {
+	echo ""
+#    local input err_num re
+#    input=$1
+#    err_num=$2
+#    re="^[0-9]+([.][0-9]+)?$"
+#    if [[ $input =~ $re ]]; then
+#        echo $input
+#    else
+#        echo $err_num
+#    fi
+	echo "Nincs"
+}
+
+#log_utilization_percent=$(Is_number $raw 0)
+# Validate for integer [[ $port =~ ^-?[0-9]+$ ]] && dosomething
+# No minus character [[ $port =~ ^[0-9]+$ ]] && dosomething
 
 ubuntu_initialize() {
 #	echo "Updating and Installing Dependicies"
@@ -62,6 +107,7 @@ ubuntu_initialize() {
 #	apt-get install -qq -y nmap > /dev/null 2>&1
 #	apt-get install -qq -y git > /dev/null 2>&1
 #	rm -r /var/log/exim4/ > /dev/null 2>&1
+
 
 	update-rc.d nfs-common disable > /dev/null 2>&1
 	update-rc.d rpcbind disable > /dev/null 2>&1
@@ -104,6 +150,215 @@ echo "(Exit status: $exitstatus)"
 #	reboot
 }
 
+reset_firewall() {
+	echo "Current iptables rules"
+}
+
+add_firewall_port(){
+	read -p "Enter the port you would like opened: " -r port
+	iptables -A INPUT -p tcp --dport ${port} -j ACCEPT
+	iptables -A OUTPUT -p tcp --sport ${port} -j ACCEPT
+	iptables-save
+}
+
+install_mysql() {
+echo "Configuring MySQL"
+echo "Leave current password empty
+Select no for set root password
+Remove anonymous users
+Disallow root login remotely
+Remove test database and access to it
+Reload privilege tables now"
+mysql_secure_installation
+
+echo "Creating database"
+name=$(dialog --inputbox "Please enter a name for the first email address.\\nEx. maik" 10 60 3>&1 1>&2 2>&3 3>&1) || exit 1
+pass1=$(dialog --no-cancel --passwordbox "Enter a password for that inbox." 10 60 3>&1 1>&2 2>&3 3>&1)
+pass2=$(dialog --no-cancel --passwordbox "Retype password." 10 60 3>&1 1>&2 2>&3 3>&1)
+while ! [ "$pass1" = "$pass2" ]; do
+    unset pass2
+	pass1=$(dialog --no-cancel --passwordbox "Passwords do not match.\\n\\nEnter password again." 10 60 3>&1 1>&2 2>&3 3>&1)
+	pass2=$(dialog --no-cancel --passwordbox "Retype password." 10 60 3>&1 1>&2 2>&3 3>&1)
+done
+
+echo "\
+CREATE DATABASE servermail;
+GRANT SELECT ON servermail.* TO 'mail'@'127.0.0.1' IDENTIFIED BY 'superstrongpassword';
+FLUSH PRIVILEGES;
+USE servermail;
+
+CREATE TABLE \`virtual_domains\` (
+\`id\`  INT NOT NULL AUTO_INCREMENT,
+\`name\` VARCHAR(50) NOT NULL,
+PRIMARY KEY (\`id\`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+CREATE TABLE \`virtual_users\` (
+\`id\` INT NOT NULL AUTO_INCREMENT,
+\`domain_id\` INT NOT NULL,
+\`password\` VARCHAR(106) NOT NULL,
+\`email\` VARCHAR(120) NOT NULL,
+PRIMARY KEY (\`id\`),
+UNIQUE KEY \`email\` (\`email\`),
+FOREIGN KEY (domain_id) REFERENCES virtual_domains(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+CREATE TABLE \`virtual_aliases\` (
+\`id\` INT NOT NULL AUTO_INCREMENT,
+\`domain_id\` INT NOT NULL,
+\`source\` varchar(100) NOT NULL,
+\`destination\` varchar(100) NOT NULL,
+PRIMARY KEY (\`id\`),
+FOREIGN KEY (domain_id) REFERENCES virtual_domains(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+INSERT INTO \`servermail\`.\`virtual_domains\`
+(\`id\`, \`name\`)
+VALUES
+('1', '$domain');
+
+INSERT INTO \`servermail\`.\`virtual_users\`
+(\`id\`, \`domain_id\`, \`password\` , \`email\`)
+VALUES
+('1', '1', ENCRYPT('$pass1', CONCAT('\$6\$', SUBSTRING(SHA(RAND()), -16))), '$name@$domain');
+
+INSERT INTO \`servermail\`.\`virtual_aliases\`
+(\`id\`, \`domain_id\`, \`source\`, \`destination\`)
+VALUES
+('1', '1', 'example@$domain', '$name@$domain');
+" | mysql -u root
+}
+
+install_dovecot() {
+	install_package 'dovecot-imapd dovecot-lmtpd'
+#        apt-get install -qq -y dovecot-imapd dovecot-lmtpd
+}
+
+install_opendkim() {
+#	which opendkim-genkey >/dev/null 2>&1 || apt install opendkim opendkim-tools
+#        apt-get install -qq -y opendmarc
+	install_package "opendkim opendkim-tools opendmarc"
+}
+
+install_postfix() {
+	echo "Installing Dependicies"
+	install_package ' postfix postgrey postfix-policyd-spf-python mailutils'
+#	apt-get install -qq -y postfix postgrey postfix-policyd-spf-python
+#	apt-get install -qq -y mailutils
+
+	read -p "Enter your mail server's domain: " -r primary_domain
+	read -p "Enter IP's to allow Relay (if none just hit enter): " -r relay_ip
+	echo "Configuring Postfix"
+	
+        [[ ! -f /etc/postfix//master.cf.origin ]] && cp /etc/postfix/master.cf /etc/postfix/master.cf.origin
+	[[ ! -f /etc/postfix/main.cf.origin ]] && cp /etc/postfix/main.cf  /etc/postfix/main.cf.origin
+}
+generate_ssl() {
+[ ! -f /etc/ssl/private/$primary_domain.tls.key ] && openssl req -newkey rsa:4096 -sha512 -x509 -days 356 -nodes -subj "/CN=mail.$primary_domain/C=HU/L=Budapest" -keyout /etc/ssl/private/$primary_domain.tls.key -out /etc/ssl/certs/$primary_domain.tls.crt 
+
+}
+
+
+
+configure_postfix_mysql() {
+postconf -e "virtual_mailbox_domains = mysql:/etc/postfix/mysql-virtual-mailbox-domains.cf"
+postconf -e "virtual_mailbox_maps = mysql:/etc/postfix/mysql-virtual-mailbox-maps.cf"
+postconf -e "virtual_alias_maps = mysql:/etc/postfix/mysql-virtual-alias-maps.cf"
+
+echo "user = mail
+password = superstrongpassword
+hosts = 127.0.0.1
+dbname = servermail
+query = SELECT 1 FROM virtual_domains WHERE name='%s'" > /etc/postfix/mysql-virtual-mailbox-domains.cf
+
+echo "user = mail
+password = superstrongpassword
+hosts = 127.0.0.1
+dbname = servermail
+query = SELECT 1 FROM virtual_users WHERE email='%s'" > /etc/postfix/mysql-virtual-mailbox-maps.cf
+
+echo "user = mail
+password = superstrongpassword
+hosts = 127.0.0.1
+dbname = servermail
+query = SELECT email FROM virtual_users WHERE email='%s' UNION SELECT destination FROM virtual_aliases WHERE source='%s' UNION SELECT destination FROM virtual_aliases WHERE source='*@%d' LIMIT 1" > /etc/postfix/mysql-virtual-alias-maps.cf
+
+}
+
+configure_postfix() {
+	[[ ! -f /etc/postfix//master.cf.origin ]] && cp /etc/postfix/master.cf /etc/postfix/master.cf.origin
+        [[ ! -f /etc/postfix/main.cf.origin ]] && cp /etc/postfix/main.cf  /etc/postfix/main.cf.origin
+
+cat <<-EOF > /etc/postfix/main.cf
+# Debian specific: 
+#myorigin = /etc/mailname
+smtpd_banner = $myhostname ESMTP $mail_name (Ubuntu)
+biff = no
+append_dot_mydomain = no
+readme_directory = no
+
+# TLS parameters
+smtpd_relay_restrictions = permit_mynetworks permit_sasl_authenticated defer_unauth_destination
+#smtpd_tls_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem
+#smtpd_tls_key_file=/etc/ssl/private/ssl-cert-snakeoil.key
+
+smtpd_tls_cert_file=/etc/ssl/certs/$primary_domain.tls.crt
+smtpd_tls_key_file= /etc/ssl/private/$primary_domain.tls.key
+smtpd_tls_security_level = may
+smtpd_tls_session_cache_database = btree:\${data_directory}/smtpd_scache
+smtpd_tls_mandatory_protocols = !SSLv2, !SSLv3, !TLSv1, !TLSv1.1
+smtpd_tls_protocols = !SSLv2, !SSLv3, !TLSv1, !TLSv1.1"
+smtpd_tls_exclude_ciphers = aNULL, LOW, EXP, MEDIUM, ADH, AECDH, MD5, DSS, ECDSA, CAMELLIA128, 3DES, CAMELLIA256, RSA+AES, eNULL
+smtpd_tls_auth_only = yes
+
+smtp_tls_protocols = !SSLv2, !SSLv3, !TLSv1, !TLSv1.1
+smtp_tls_mandatory_protocols = !SSLv2, !SSLv3, !TLSv1, !TLSv1.1
+smtp_tls_session_cache_database = btree:\${data_directory}/smtp_scache
+tls_preempt_cipherlist = yes
+#smtp_tls_CApath=/etc/ssl/certs
+smtp_tls_security_level = encrypt
+smtp_tls_loglevel = 1
+#postconf -e "smtp_tls_CAfile=$certdir/cert.pem"
+
+myhostname = ${primary_domain}
+alias_maps = hash:/etc/postfix/aliases
+alias_database = hash:/etc/postfix/aliases
+myorigin = /etc/mailname
+mydestination = ${primary_domain}, localhost.com, , localhost
+relayhost =
+mynetworks = 127.0.0.0/8 ${relay_ip}
+
+mailbox_command = procmail -a "\$EXTENSION"
+mailbox_size_limit = 0
+recipient_delimiter = +
+inet_interfaces = all
+inet_protocols = ipv4
+EOF
+
+# Here we tell Postfix to look to Dovecot for authenticating users/passwords.
+# Dovecot will be putting an authentication socket in /var/spool/postfix/private/auth
+postconf -e "smtpd_sasl_auth_enable = yes"
+postconf -e "smtpd_sasl_type = dovecot"
+postconf -e "smtpd_sasl_path = private/auth"
+
+# Sender and recipient restrictions
+postconf -e "smtpd_recipient_restrictions = permit_sasl_authenticated, permit_mynetworks, reject_unauth_destination"
+
+postconf -e "mydestination = localhost"
+postconf -e "myhostname = $maildomain"
+
+postconf -e "virtual_transport = lmtp:unix:private/dovecot-lmtp"
+
+echo "Configuring Postfix's master.cf..."
+[[ ! -f /etc/postfix//master.cf.origin ]] && cp /etc/postfix/master.cf /etc/postfix/master.cf.origin
+
+}
+install_postfix_dovecot() {
+	install_postfix
+}
+
+check_root
+install_package whiptail
 
 
 while [ 1 ]
@@ -112,6 +367,7 @@ CHOICE=$(
 whiptail --title "Server setup wizard" --menu "Make your choice" 16 100 9 \
 	"1)" "Setup SSH."   \
 	"2)" "Ubuntu Initializer."  \
+	"3)" "Postfix."  \
 	"9)" "End script"  3>&2 2>&1 1>&3	
 )
 
@@ -126,6 +382,11 @@ case $CHOICE in
 		OP1=$(uptime | awk '{print $3;}') 
 		result="This system has been updated"
 	;;
+        "3)")
+                result="I"
+                install_postfix
+        ;;
+
         "9)") exit
         ;;
 esac
