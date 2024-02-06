@@ -230,8 +230,68 @@ VALUES
 }
 
 install_dovecot() {
-	install_package 'dovecot-imapd dovecot-lmtpd'
+	install_package 'dovecot-core dovecot-imapd dovecot-lmtpd'
 #        apt-get install -qq -y dovecot-imapd dovecot-lmtpd
+
+[ ! -f /etc/dovecot/conf.d/10-master.conf.origin ] && cp /etc/dovecot/conf.d/10-master.conf /etc/dovecot/conf.d/10-master.conf.origin
+cat <<-EOF > /etc/dovecot/conf.d/10-master.conf
+service auth {
+  # auth_socket_path points to this userdb socket by default. It's typically
+  # used by dovecot-lda, doveadm, possibly imap process, etc. Its default
+  # permissions make it readable only by root, but you may need to relax these
+  # permissions. Users that have access to this socket are able to get a list
+  # of all usernames and get results of everyone's userdb lookups.
+  unix_listener auth-userdb {
+    #mode = 0600
+    #user = 
+    #group = 
+  }
+    
+  # Postfix smtp-auth
+  unix_listener /var/spool/postfix/private/auth {
+    mode = 0660
+    user = postfix
+    group = postfix
+  }
+ }
+EOF
+[ ! -f /etc/dovecot/conf.d/10-auth.conf.origin ] && cp  /etc/dovecot/conf.d/10-auth.conf /etc/dovecot/conf.d/10-auth.conf.origin
+[ ! -f /etc/dovecot/conf.d/10-mail.conf.origin ] && cp  /etc/dovecot/conf.d/10-mail.conf /etc/dovecot/conf.d/10-mail.conf.origin
+[ ! -f /etc/dovecot/conf.d/10-master.conf.origin ] && cp  /etc/dovecot/conf.d/10-master.conf /etc/dovecot/conf.d/10-master.conf.origin
+[ ! -f /etc/dovecot/conf.d/auth-passwdfile.conf.ext.origin ] && cp  /etc/dovecot/conf.d/auth-passwdfile.conf.ext /etc/dovecot/conf.d/auth-passwdfile.conf.ext.origin
+[ ! -f /etc/dovecot/conf.d/10-ssl.conf.origin ] && cp  /etc/dovecot/conf.d/10-ssl.conf /etc/dovecot/conf.d/10-ssl.conf.origin
+
+sed -i -e 's/auth_mechanisms = plain/auth_mechanisms = plain login/g' /etc/dovecot/conf.d/10-auth.conf
+
+#mit=mail_location = mbox:~/mail:INBOX=/var/mail/%u
+#mire=email_location = maildir:~/Maildir
+#sed -i -e 's/$mit/$mire/g' /etc/dovecot/conf.d/10-mail.conf
+#mail_location = mbox:~/mail:INBOX=/var/mail/%u
+sed -e '/mail_location = mbox:/s/^#*/#/' -i /etc/dovecot/conf.d/10-mail.conf
+echo "mail_location = maildir:~/Maildir" >> /etc/dovecot/conf.d/10-mail.conf
+
+#inet_listener imaps {
+#    port = 993
+#    ssl = yes
+#  }
+
+#service lmtp {
+#unix_listener /var/spool/postfix/private/dovecot-lmtp {
+#    mode = 0600
+#    user = postfix
+#    group = postfix
+#  }
+#}
+
+#unix_listener /var/spool/postfix/private/auth {
+#  mode = 0666
+#  user = postfix
+#  group = postfix
+#}
+
+/etc/ssl/certs/$primary_domain.tls.crt
+smtpd_tls_key_file= /etc/ssl/private/$primary_domain.tls.key
+
 }
 
 install_opendkim() {
@@ -286,8 +346,8 @@ query = SELECT email FROM virtual_users WHERE email='%s' UNION SELECT destinatio
 }
 
 configure_postfix() {
-	[[ ! -f /etc/postfix//master.cf.origin ]] && cp /etc/postfix/master.cf /etc/postfix/master.cf.origin
-        [[ ! -f /etc/postfix/main.cf.origin ]] && cp /etc/postfix/main.cf  /etc/postfix/main.cf.origin
+[ ! -f /etc/postfix//master.cf.origin ] && cp /etc/postfix/master.cf /etc/postfix/master.cf.origin
+[ ! -f /etc/postfix/main.cf.origin ] && cp /etc/postfix/main.cf  /etc/postfix/main.cf.origin
 
 cat <<-EOF > /etc/postfix/main.cf
 # Debian specific: 
@@ -310,12 +370,16 @@ smtpd_tls_mandatory_protocols = !SSLv2, !SSLv3, !TLSv1, !TLSv1.1
 smtpd_tls_protocols = !SSLv2, !SSLv3, !TLSv1, !TLSv1.1"
 smtpd_tls_exclude_ciphers = aNULL, LOW, EXP, MEDIUM, ADH, AECDH, MD5, DSS, ECDSA, CAMELLIA128, 3DES, CAMELLIA256, RSA+AES, eNULL
 smtpd_tls_auth_only = yes
+smtpd_tls_received_header = yes
 
+smtp_tls_note_starttls_offer = yes
 smtp_tls_protocols = !SSLv2, !SSLv3, !TLSv1, !TLSv1.1
 smtp_tls_mandatory_protocols = !SSLv2, !SSLv3, !TLSv1, !TLSv1.1
 smtp_tls_session_cache_database = btree:\${data_directory}/smtp_scache
 tls_preempt_cipherlist = yes
-#smtp_tls_CApath=/etc/ssl/certs
+#If you are using your own Certificate Authority to sign the certificate, enter:
+#smtp_tls_CApath= /etc/ssl/certs
+#smtpd_tls_CAfile = /etc/ssl/certs/cacert.pem
 smtp_tls_security_level = encrypt
 smtp_tls_loglevel = 1
 #postconf -e "smtp_tls_CAfile=$certdir/cert.pem"
@@ -333,6 +397,10 @@ mailbox_size_limit = 0
 recipient_delimiter = +
 inet_interfaces = all
 inet_protocols = ipv4
+
+# SMTP-AUTH allows a client to identify itself through the Simple Authentication and Security Layer (SASL) authentication mechanism, using Transport Layer Security (TLS) to encrypt the authentication process. Once it has been authenticated, the SMTP server will allow the client to relay mail.
+# Configure SMTP authentication
+# To configure Postfix for SMTP-AUTH using SASL (Dovecot SASL)
 EOF
 
 # Here we tell Postfix to look to Dovecot for authenticating users/passwords.
@@ -340,7 +408,10 @@ EOF
 postconf -e "smtpd_sasl_auth_enable = yes"
 postconf -e "smtpd_sasl_type = dovecot"
 postconf -e "smtpd_sasl_path = private/auth"
-
+postconf -e 'smtpd_sasl_local_domain ='
+postconf -e 'smtpd_sasl_security_options = noanonymous,noplaintext'
+postconf -e 'smtpd_sasl_tls_security_options = noanonymous'
+postconf -e 'broken_sasl_auth_clients = yes'
 # Sender and recipient restrictions
 postconf -e "smtpd_recipient_restrictions = permit_sasl_authenticated, permit_mynetworks, reject_unauth_destination"
 
@@ -349,8 +420,10 @@ postconf -e "myhostname = $maildomain"
 
 postconf -e "virtual_transport = lmtp:unix:private/dovecot-lmtp"
 
+postconf -e 'home_mailbox = Maildir/'
+
 echo "Configuring Postfix's master.cf..."
-[[ ! -f /etc/postfix//master.cf.origin ]] && cp /etc/postfix/master.cf /etc/postfix/master.cf.origin
+[ ! -f /etc/postfix//master.cf.origin ] && cp /etc/postfix/master.cf /etc/postfix/master.cf.origin
 cat <<-EOF > /etc/postfix/master.cf
 # ==========================================================================
 # service type  private unpriv  chroot  wakeup  maxproc command + args
@@ -445,6 +518,7 @@ check_root
 install_package whiptail
 
 
+do_menu() {
 while [ 1 ]
 do
 CHOICE=$(
@@ -476,4 +550,7 @@ case $CHOICE in
 esac
 whiptail --msgbox "$result" 20 78
 done
+}
+
+configure_postfix
 exit
