@@ -1,7 +1,7 @@
 #!/bin/sh
 
 primary_domain=domain.hu
-echo "Installing programs..."
+echo "Installing programs ..."
 
 install_package() {
 REQUIRED_PKG=$1
