@@ -1,6 +1,6 @@
 #!/bin/sh
 
-echo "Installing programs..."
+echo "  Installing programs..."
 
 REQUIRED_PKG="whiptail"
 PKG_OK=$(dpkg-query -W --showformat='${Status}\n' $REQUIRED_PKG|grep "install ok installed")
